@@ -53,7 +53,7 @@ func main() {
 				exists = true
 				pf.Port += rand10()
 			} else {
-				if err = proc.Signal(syscall.Signal(0)); err != nil {
+				if err = proc.Signal(syscall.Signal(0)); err == nil {
 					exists = true
 					pf.Port += rand10()
 				}
