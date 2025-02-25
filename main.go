@@ -1,117 +1,63 @@
 package main
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
 	"math/rand"
-	"net/rpc/jsonrpc"
 	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
-	"syscall"
+	"strconv"
 )
 
-// 文件锁路径
-var lockFilePath = "./app.lock"
-
 func main() {
-	path, _ := os.Executable()
-	_, execName := filepath.Split(path)
-	lockFilePath = fmt.Sprintf("%s.lock", strings.TrimSuffix(execName, ".exe"))
+	var (
+		isProcExists bool
+		rpcPort      int
+		pf           PidFile
+	)
+	pc := NewProcessChecker()
+	if content, err := pc.ReadPidFile(); err == nil {
+		// 读取 PID 文件成功
+		if err = json.Unmarshal(content, &pf); err != nil {
+			fmt.Printf("pidfile unmarshal error: %s\n", err)
+		} else if pc.IsProcessRunning(pf.Pid) {
+			// 进程存在
+			isProcExists = true
+			rpcPort = pf.Port
+		}
+	}
 
-	var isNewFile bool
-	pf, err := ReadPidFile(lockFilePath)
+	pf.Pid = os.Getpid()               // 当前进程 PID
+	pf.Port = rand.Intn(10000) + 10000 // 随机生成 RPC 端口号
+	content, err := json.Marshal(pf)
 	if err != nil {
-		if errors.Is(err, ErrPidFileNotExists) {
-			// 创建 PID 文件
-			pf = &PidFile{
-				Pid:  os.Getpid(),
-				Port: rand.Intn(10000) + 10000, // 随机生成端口号
-			}
-			isNewFile = true
-			if err = WritePidFile(lockFilePath, pf, true); err != nil {
-				fmt.Printf("%s\n", err)
-				os.Exit(1)
-			}
-		} else {
-			fmt.Println("pidfile error:", err)
-			os.Exit(1)
-		}
-	}
-
-	port := pf.Port
-	var exists bool
-	if !isNewFile {
-		// 检查 PID 是否存在
-		proc, err := os.FindProcess(pf.Pid)
-		if err != nil {
-			fmt.Printf("find process error: %s\n", err)
-			exists = false
-		} else {
-			if runtime.GOOS == "windows" {
-				exists = true
-				pf.Port += rand10()
-			} else {
-				if err = proc.Signal(syscall.Signal(0)); err == nil {
-					exists = true
-					pf.Port += rand10()
-				}
-			}
-		}
+		fmt.Printf("pidfile marshal error: %s\n", err)
 	} else {
-		exists = false
-	}
-
-	// 记录当前 PID
-	pf.Pid = os.Getpid()
-	fmt.Println(pf.Pid, pf.Port, exists, isNewFile)
-
-	app := NewApp(pf.Port)
-	// defer app.Stop()
-	if exists {
-		fmt.Println("syncing data from remote")
-		sync(port, app)
-		for k, v := range app.Data {
-			fmt.Printf("-> app.Data[%s: %v]\n", k, v)
-		}
-		fmt.Println("synced data from remote")
-		write(pf)
-		app.Run()
-	} else {
-		write(pf)
-		if err = app.Run(); err != nil {
-			fmt.Printf("%s\n", err)
-			os.Exit(1)
+		// save pidfile
+		if err := pc.WritePidFile(content); err != nil {
+			fmt.Printf("pidfile error: %s\n", err)
 		}
 	}
-}
 
-func write(pf *PidFile) {
-	if err := WritePidFile(lockFilePath, pf, true); err != nil {
-		fmt.Printf("%s\n", err)
+	if isProcExists {
+		// 拉取共享数据
+		PullData(rpcPort, 100)
+		// 打印共享数据
+		fmt.Println("Shared Data:")
+		SharedData.Foreach(func(key string, value any) {
+			fmt.Printf("pid: %s, port: %v\n", key, value)
+		})
+	}
+	// 当前进程信息
+	k, v := strconv.Itoa(pf.Pid), strconv.Itoa(pf.Port)
+	SharedData.Set(k, v)
+	fmt.Printf("Current Process:\n-> pid: %s, port: %s\n", k, v)
+
+	// rpc server
+	svr, err := NewRpcServer(pf.Port)
+	if err != nil {
+		fmt.Printf("rpc server error: %s\n", err)
 		os.Exit(1)
 	}
-}
-
-func sync(port int, app *App) error {
-	client, err := jsonrpc.Dial("tcp", fmt.Sprintf("localhost:%d", port))
-	if err != nil {
-		fmt.Printf("sync error: %s\n", err)
-		return err
-	}
-	defer client.Close()
-	return PullData(app, client, 10)
-}
-
-func rand10() int {
-	n := rand.Intn(10)
-	if n == 0 {
-		return 1
-	}
-	if n > 5 {
-		return -1 * n
-	} else {
-		return n
-	}
+	svr.Register(&SyncService{svr})
+	svr.Start()
 }
