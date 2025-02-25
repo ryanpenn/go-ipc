@@ -24,7 +24,6 @@ func (s *storage) Set(key string, value any) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.Data[key] = value
-
 }
 
 func (s *storage) Get(key string) any {

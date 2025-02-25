@@ -20,7 +20,7 @@ func (s *ExampleService) Multiply(args *Args, reply *int) error {
 }
 
 // rpc server
-func doServer() {
+func ExampleRpcServer() {
 	service := new(ExampleService)
 	rpc.Register(service)
 	l, err := net.Listen("tcp", ":1234")
@@ -39,7 +39,7 @@ func doServer() {
 }
 
 // rpc client
-func doClient() {
+func ExampleRpcClient() {
 	client, err := jsonrpc.Dial("tcp", "localhost:1234")
 	if err != nil {
 		log.Fatalf("Failed to dial: %v", err)

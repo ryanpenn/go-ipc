@@ -24,14 +24,11 @@ type SyncService struct {
 
 func (s *SyncService) SyncData(r *Request, reply *Reply) error {
 	if r.Done {
-		s.svr.Stop() // 停止服务
+		s.svr.Stop() // stop rpc server
 		return nil
 	}
 
-	size := r.Size
-	if size > SharedData.Len() {
-		size = SharedData.Len()
-	}
+	size := min(r.Size, SharedData.Len())
 	reply.Data = make(map[string]any, size)
 	SharedData.Transfer(func(key string, value any) {
 		reply.Data[key] = value
@@ -60,7 +57,7 @@ func NewRpcServer(port int) (*RpcServer, error) {
 }
 
 func (s *RpcServer) Start() {
-	fmt.Printf("RPC服务启动成功, 监听端口: %d\n", s.listener.Addr().(*net.TCPAddr).Port)
+	fmt.Printf("RPC server start at port: %d\n", s.listener.Addr().(*net.TCPAddr).Port)
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
@@ -69,7 +66,7 @@ func (s *RpcServer) Start() {
 		}
 
 		go func() {
-			defer conn.Close() // 关闭连接
+			defer conn.Close()
 			jsonrpc.ServeConn(conn)
 		}()
 	}
@@ -77,7 +74,7 @@ func (s *RpcServer) Start() {
 
 func (s *RpcServer) Stop() {
 	s.listener.Close()
-	fmt.Printf("RPC服务停止\n")
+	fmt.Printf("RPC server stopped\n")
 }
 
 func (s *RpcServer) Register(rcvr any) error {
@@ -96,16 +93,16 @@ func PullData(port int, batchSize int) error {
 	var reply Reply
 	r := &Request{Done: false, Size: batchSize}
 	for !reply.Done {
-		// 同步数据
+		// call rpc method: syncdata
 		if err := cli.Call(method, r, &reply); err != nil {
-			fmt.Printf("同步数据失败: %s\n", err)
-			cli.Call(method, &Request{Size: 0, Done: true}, &reply) // 通知服务停止
+			fmt.Printf("syncdata error: %s\n", err)
+			cli.Call(method, &Request{Size: 0, Done: true}, &reply) // call rpc method: done
 			return err
 		}
 		maps.Copy(SharedData.Data, reply.Data)
 	}
 
-	// 通知服务停止
+	// call rpc method: done
 	if err := cli.Call(method, &Request{Size: 0, Done: true}, &reply); err != nil {
 		return err
 	}

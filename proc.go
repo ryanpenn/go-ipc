@@ -14,11 +14,11 @@ type ProcessChecker struct {
 }
 
 func (sp *ProcessChecker) ReadPidFile() ([]byte, error) {
-	// 检查文件是否存在
+	// check lock file exist
 	if _, err := os.Stat(sp.lockFilePath); os.IsNotExist(err) {
 		return nil, err
 	}
-	// 读取文件内容
+	// read lock file
 	content, err := os.ReadFile(sp.lockFilePath)
 	if err != nil {
 		return nil, err
@@ -28,23 +28,23 @@ func (sp *ProcessChecker) ReadPidFile() ([]byte, error) {
 
 func (sp *ProcessChecker) WritePidFile(content []byte) error {
 	var pFile *os.File
-	// 检查文件是否存在
+	// check lock file exist
 	if _, err := os.Stat(sp.lockFilePath); os.IsNotExist(err) {
-		// 文件不存在，创建文件
+		// if not exist, create file
 		if pFile, err = os.Create(sp.lockFilePath); err != nil {
 			return err
 		}
 	}
 
 	if pFile == nil {
-		// 文件存在，打开文件
+		// if exist, open file for write
 		var err error
 		if pFile, err = os.OpenFile(sp.lockFilePath, os.O_WRONLY|os.O_TRUNC, 0666); err != nil {
 			return err
 		}
 	}
 
-	// defer 关闭文件
+	// close file
 	defer pFile.Close()
 
 	if _, err := pFile.Write(content); err != nil {
@@ -54,7 +54,7 @@ func (sp *ProcessChecker) WritePidFile(content []byte) error {
 }
 
 func (sp *ProcessChecker) IsProcessRunning(pid int) bool {
-	// 检查 PID 是否存在
+	// check pid exist
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return false
@@ -83,8 +83,9 @@ func NewProcessChecker(opt ...ProcessOption) *ProcessChecker {
 	_, execName := filepath.Split(path)
 	fpath := fmt.Sprintf("%s.lock", strings.TrimSuffix(execName, ".exe"))
 
+	// set current executable name as lock file name
 	sp := &ProcessChecker{
-		lockFilePath: fpath, // 默认锁文件名为可执行文件名加上.lock后缀
+		lockFilePath: fpath,
 	}
 	for _, o := range opt {
 		o(sp)
